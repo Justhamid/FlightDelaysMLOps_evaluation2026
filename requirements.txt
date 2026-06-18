@@ -1,0 +1,25 @@
+# Data & ML
+pandas
+numpy
+scikit-learn
+joblib
+
+# Traçabilité
+mlflow
+dvc
+
+# API
+fastapi
+uvicorn[standard]
+pydantic
+
+# Supervision / dérive
+evidently
+
+# Tests
+pytest
+httpx
+
+# Utilitaires
+requests
+python-dotenv

@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Data (versionné avec DVC, pas Git)
+data/raw/*.csv
+data/processed/*.csv
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# Artefacts générés (modèles, métriques)
+artifacts/*
+!artifacts/.gitkeep
+
+# MLflow
+mlruns/
+mlflow.db
+mlartifacts/
+
+# Airflow
+logs/
+dags/__pycache__/
+
+# Logs applicatifs
+*.log
+
+# Tests / couverture
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environnement
+.env
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
