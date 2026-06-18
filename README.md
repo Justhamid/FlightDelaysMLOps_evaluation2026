@@ -51,13 +51,27 @@ docker compose exec airflow-scheduler airflow dags trigger flight_delay_pipeline
 docker compose down                        # pour arreter
 ```
 
+## API d'inférence
+
+`app.py` expose le modèle (chargé depuis le MLflow Model Registry via l'alias `champion`) en HTTP :
+
+- `GET /` et `GET /health` : statut de l'API et du modèle
+- `POST /predict` : prédiction à partir d'un `FlightRequest` (Pydantic), avec 2 validateurs métier au-delà du simple typage : l'heure programmée doit être un format HHMM valide (minutes < 60), et l'aéroport de départ doit différer de celui d'arrivée
+- Erreurs HTTP explicites : `422` pour toute requête invalide (typage ou validateur métier), `500` pour les erreurs internes (modèle indisponible, erreur inattendue)
+- Documentation interactive sur `/docs` (Swagger)
+
+```bash
+uvicorn app:app --reload
+# puis http://127.0.0.1:8000/docs
+```
+
 ## Briques MLOps couvertes
 
 - [x] Pipeline de données versionné avec DVC
 - [x] Traçabilité des entraînements avec MLflow (≥3 runs comparables)
 - [x] Pipeline en fonctions à contrats (prepare / train / evaluate / save)
 - [x] Orchestration via un DAG Airflow (Docker)
-- [ ] API d'inférence FastAPI (`/`, `/health`, `/predict`)
+- [x] API d'inférence FastAPI (`/`, `/health`, `/predict`)
 - [ ] Supervision et détection de dérive (`/metrics`, anomalies, dérive)
 - [ ] Tests pytest + CI GitHub Actions
 - [ ] Proposition d'architecture d'évolution (stockage SQL/NoSQL/Big Data)
