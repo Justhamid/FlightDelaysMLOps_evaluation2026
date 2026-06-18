@@ -2,9 +2,7 @@
 
 Système MLOps complet pour prédire le retard d'un vol (`delayed = 1` si `ARRIVAL_DELAY > 15 min`, sinon `0`), à partir du dataset Kaggle [usdot/flight-delays](https://www.kaggle.com/datasets/usdot/flight-delays).
 
-Projet réalisé en équipe : **Hamid, Joan et [Ton prénom]**.
-
-> Statut : en construction — ce README sera complété brique par brique (voir la liste ci-dessous).
+Projet réalisé en équipe : **Hamid, Joan et Romain**.
 
 ## Architecture du projet
 
@@ -16,7 +14,7 @@ scripts/          → scripts utilitaires (échantillonnage, alias MLflow, etc.)
 artifacts/        → modèle entraîné, métriques (générés, gitignorés)
 dags/             → DAG Airflow orchestrant le pipeline
 tests/            → tests pytest (pipeline, API, non-régression)
-report/           → éléments du rapport PDF (captures d'écran, schémas)
+Rapport PDF/      → rapport final + éléments du rapport (schémas, notes)
 .github/workflows/→ CI GitHub Actions
 ```
 
@@ -97,7 +95,7 @@ Workflow GitHub Actions (`.github/workflows/ci.yml`) : installe les dépendances
 - [x] API d'inférence FastAPI (`/`, `/health`, `/predict`)
 - [x] Supervision et détection de dérive (`/metrics`, anomalies, dérive)
 - [x] Tests pytest + CI GitHub Actions
-- [x] Proposition d'architecture d'évolution (stockage SQL/NoSQL/Big Data) — voir `report/evolution_architecture.md`
+- [x] Proposition d'architecture d'évolution (stockage SQL/NoSQL/Big Data) — voir `Rapport PDF/evolution_architecture.md`
 
 ## Installation
 
