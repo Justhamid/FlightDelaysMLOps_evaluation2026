@@ -14,9 +14,6 @@ fastapi
 uvicorn[standard]
 pydantic
 
-# Supervision / dérive
-evidently
-
 # Tests
 pytest
 httpx

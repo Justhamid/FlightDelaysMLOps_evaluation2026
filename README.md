@@ -73,6 +73,21 @@ uvicorn app:app --reload
 - **Dérive sur fenêtre glissante** (`GET /drift_report`) : test de Kolmogorov-Smirnov entre les 200 dernières requêtes et l'échantillon de référence ; `drift_detected: true` si p-value < 0.05. Différence clé avec l'anomalie : la dérive n'empêche jamais une prédiction individuelle, elle alerte sur un déplacement global de la distribution
 - Testé en conditions réelles : anomalie (distance hors plage), dérive simulée (distribution décalée → p-value ≈ 0) vs trafic normal (p-value ≈ 0.93), et panne du modèle (artefact manquant → `/health` passe à `model_loaded: false`, `/predict` renvoie 500, logs ERROR)
 
+## Tests et CI
+
+16 tests pytest répartis en 3 fichiers :
+- `tests/test_pipeline.py` (5) : `prepare`/`train`/`evaluate`/`save`, y compris le correctif `drop_first=False` sur une requête à une seule ligne
+- `tests/test_api.py` (7) : routes `/`, `/health`, `/predict` (succès, anomalie, 2 validateurs métier en 422), `/metrics`
+- `tests/test_non_regression.py` (3) : seuil minimal de F1 (détecte un modèle cassé), déterminisme du modèle, stabilité du schéma de réponse de `/predict`
+
+Les tests utilisent un petit échantillon fixe (`tests/fixtures/flights_fixture.csv`, 500 lignes, committé en Git) et injectent directement un modèle de test dans l'état de l'API (`tests/conftest.py`) — pas besoin de DVC, MLflow ou Docker pour faire tourner la suite, donc rapide et fiable en CI.
+
+```bash
+pytest -v
+```
+
+Workflow GitHub Actions (`.github/workflows/ci.yml`) : installe les dépendances et lance `pytest` à chaque push.
+
 ## Briques MLOps couvertes
 
 - [x] Pipeline de données versionné avec DVC
@@ -81,7 +96,7 @@ uvicorn app:app --reload
 - [x] Orchestration via un DAG Airflow (Docker)
 - [x] API d'inférence FastAPI (`/`, `/health`, `/predict`)
 - [x] Supervision et détection de dérive (`/metrics`, anomalies, dérive)
-- [ ] Tests pytest + CI GitHub Actions
+- [x] Tests pytest + CI GitHub Actions
 - [ ] Proposition d'architecture d'évolution (stockage SQL/NoSQL/Big Data)
 
 ## Installation
