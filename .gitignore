@@ -32,8 +32,9 @@ dags/__pycache__/
 .coverage
 htmlcov/
 
-# Environnement
-.env
+
+# Claude Code (outil local)
+.claude/
 
 # IDE / OS
 .vscode/

@@ -29,12 +29,34 @@ report/           → éléments du rapport PDF (captures d'écran, schémas)
 - Récupérer l'échantillon : `dvc pull` (nécessite l'accès au remote DVC local `../dvcstore`, configuré pour ce TP — voir `.dvc/config`)
 - Régénérer l'échantillon depuis zéro : télécharger `flights.csv` depuis Kaggle dans `data/raw/flights.csv`, puis `python scripts/build_sample.py --input data/raw/flights.csv`
 
+## Pipeline & MLflow
+
+Le pipeline (`src/pipeline.py`) est découpé en 4 fonctions à contrat : `prepare()`, `train()`, `evaluate()`, `save()`, chacune documentée (entrées/sorties/dépendances). `main.py` les enchaîne et logge tout dans **MLflow** (params, métriques accuracy/precision/recall/F1, artefacts) avec un backend SQLite (`mlflow.db`) qui supporte directement le Model Registry, sans serveur dédié à lancer.
+
+```bash
+python main.py --n-estimators 150 --max-depth 15 --class-weight balanced
+mlflow ui --backend-store-uri sqlite:///mlflow.db   # puis http://localhost:5000
+python scripts/set_model_alias.py --alias champion  # pointe l'alias vers la derniere version
+```
+
+## Orchestration Airflow (Docker)
+
+Le DAG `flight_delay_pipeline` (`dags/flight_delay_dag.py`) exécute `check_data >> prepare >> train >> evaluate >> save` en réutilisant directement les fonctions de `src/pipeline.py`. Deux contrôles intégrés : existence + format des données en entrée (`check_data`), existence et relecture de l'artefact modèle en sortie (`save`). Un échec sur une tâche stoppe le DAG (les tâches suivantes passent en `upstream_failed`, jamais exécutées) et ne laisse jamais de modèle partiellement écrit, car `artifacts/model.pkl` n'est remplacé qu'à la toute dernière étape.
+
+```bash
+docker compose up -d                       # demarre Postgres + scheduler + webserver
+# http://localhost:8080  (admin / admin)
+docker compose exec airflow-scheduler airflow dags unpause flight_delay_pipeline
+docker compose exec airflow-scheduler airflow dags trigger flight_delay_pipeline
+docker compose down                        # pour arreter
+```
+
 ## Briques MLOps couvertes
 
 - [x] Pipeline de données versionné avec DVC
-- [ ] Traçabilité des entraînements avec MLflow (≥3 runs comparables)
-- [ ] Pipeline en fonctions à contrats (prepare / train / evaluate / save)
-- [ ] Orchestration via un DAG Airflow (Docker)
+- [x] Traçabilité des entraînements avec MLflow (≥3 runs comparables)
+- [x] Pipeline en fonctions à contrats (prepare / train / evaluate / save)
+- [x] Orchestration via un DAG Airflow (Docker)
 - [ ] API d'inférence FastAPI (`/`, `/health`, `/predict`)
 - [ ] Supervision et détection de dérive (`/metrics`, anomalies, dérive)
 - [ ] Tests pytest + CI GitHub Actions
@@ -47,7 +69,3 @@ python -m venv .venv
 .venv\Scripts\activate   # Windows
 pip install -r requirements.txt
 ```
-
-## Exécution
-
-_À compléter au fur et à mesure de l'avancement du projet._
