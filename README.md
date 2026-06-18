@@ -20,9 +20,18 @@ report/           → éléments du rapport PDF (captures d'écran, schémas)
 .github/workflows/→ CI GitHub Actions
 ```
 
+## Données
+
+Échantillon de 200 000 vols tiré du dataset Kaggle [usdot/flight-delays](https://www.kaggle.com/datasets/usdot/flight-delays), versionné avec **DVC** (pas Git — le CSV brut complet fait 565 Mo).
+
+- Cible binaire `delayed` = 1 si `ARRIVAL_DELAY > 15 min`, sinon 0 (taux de retard sur l'échantillon : ~17.8%)
+- Variables conservées : uniquement celles connues **avant le départ** du vol (`MONTH`, `DAY_OF_WEEK`, `AIRLINE`, `ORIGIN_AIRPORT`, `DESTINATION_AIRPORT`, `SCHEDULED_DEPARTURE`, `SCHEDULED_TIME`, `DISTANCE`) — les colonnes post-vol (`DEPARTURE_DELAY`, `TAXI_OUT`, `AIR_TIME`...) sont exclues pour éviter toute fuite d'information
+- Récupérer l'échantillon : `dvc pull` (nécessite l'accès au remote DVC local `../dvcstore`, configuré pour ce TP — voir `.dvc/config`)
+- Régénérer l'échantillon depuis zéro : télécharger `flights.csv` depuis Kaggle dans `data/raw/flights.csv`, puis `python scripts/build_sample.py --input data/raw/flights.csv`
+
 ## Briques MLOps couvertes
 
-- [ ] Pipeline de données versionné avec DVC
+- [x] Pipeline de données versionné avec DVC
 - [ ] Traçabilité des entraînements avec MLflow (≥3 runs comparables)
 - [ ] Pipeline en fonctions à contrats (prepare / train / evaluate / save)
 - [ ] Orchestration via un DAG Airflow (Docker)
