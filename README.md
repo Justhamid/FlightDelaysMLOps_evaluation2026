@@ -97,7 +97,7 @@ Workflow GitHub Actions (`.github/workflows/ci.yml`) : installe les dépendances
 - [x] API d'inférence FastAPI (`/`, `/health`, `/predict`)
 - [x] Supervision et détection de dérive (`/metrics`, anomalies, dérive)
 - [x] Tests pytest + CI GitHub Actions
-- [ ] Proposition d'architecture d'évolution (stockage SQL/NoSQL/Big Data)
+- [x] Proposition d'architecture d'évolution (stockage SQL/NoSQL/Big Data) — voir `report/evolution_architecture.md`
 
 ## Installation
 
