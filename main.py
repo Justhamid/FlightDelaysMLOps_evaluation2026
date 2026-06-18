@@ -9,12 +9,29 @@ import argparse
 
 import mlflow
 import mlflow.sklearn
+import pandas as pd
 
-from src.pipeline import evaluate, prepare, save, train
+from src.pipeline import NUMERIC_COLUMNS, evaluate, prepare, save, train
 
 TRACKING_URI = "sqlite:///mlflow.db"
 EXPERIMENT_NAME = "flight_delays"
 REGISTERED_MODEL_NAME = "flight_delay_model"
+REFERENCE_SAMPLE_PATH = "artifacts/reference_sample.csv"
+REFERENCE_SAMPLE_SIZE = 2000
+
+
+def save_reference_sample(data_path: str, output_path: str = REFERENCE_SAMPLE_PATH, n: int = REFERENCE_SAMPLE_SIZE) -> str:
+    """Sauvegarde un echantillon des valeurs numeriques brutes vues a l'entrainement.
+
+    Entrees: chemin des donnees d'entrainement, chemin de sortie, taille de l'echantillon.
+    Sorties: chemin du fichier ecrit. Utilise par l'API (app.py) pour la detection
+        d'anomalie (plage de valeurs) et de derive (test de Kolmogorov-Smirnov).
+    Depend de: pandas.
+    """
+    df = pd.read_csv(data_path)
+    sample = df[NUMERIC_COLUMNS].sample(n=min(n, len(df)), random_state=42)
+    sample.to_csv(output_path, index=False)
+    return output_path
 
 
 def run(
@@ -55,6 +72,10 @@ def run(
         paths = save(model, metrics, feature_columns)
         mlflow.log_artifact(paths["metrics_path"])
         mlflow.log_artifact(paths["feature_columns_path"])
+
+        reference_path = save_reference_sample(data_path)
+        mlflow.log_artifact(reference_path)
+
         mlflow.sklearn.log_model(
             model,
             artifact_path="model",

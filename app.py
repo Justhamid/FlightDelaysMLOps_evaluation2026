@@ -8,7 +8,10 @@ puis ouvrir http://127.0.0.1:8000/docs pour la documentation Swagger.
 
 import json
 import logging
+import time
+from collections import deque
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import mlflow
 import mlflow.sklearn
@@ -18,27 +21,51 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
+from scipy.stats import ks_2samp
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+Path("logs").mkdir(exist_ok=True)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+    handlers=[logging.StreamHandler(), logging.FileHandler("logs/api.log")],
+)
 logger = logging.getLogger("flight_delay_api")
 
 TRACKING_URI = "sqlite:///mlflow.db"
 MODEL_URI = "models:/flight_delay_model@champion"
 FEATURE_COLUMNS_PATH = "artifacts/feature_columns.json"
+REFERENCE_SAMPLE_PATH = "artifacts/reference_sample.csv"
 CATEGORICAL_COLUMNS = ["AIRLINE", "ORIGIN_AIRPORT", "DESTINATION_AIRPORT"]
+ANOMALY_COLUMNS = ["DISTANCE", "SCHEDULED_TIME"]
+DRIFT_WINDOW_SIZE = 200
+DRIFT_MIN_SAMPLES = 30
+DRIFT_P_VALUE_THRESHOLD = 0.05
 
-state: dict = {"model": None, "feature_columns": None}
+state: dict = {
+    "model": None,
+    "feature_columns": None,
+    "reference": None,
+    "request_window": deque(maxlen=DRIFT_WINDOW_SIZE),
+    "metrics": {
+        "total_requests": 0,
+        "total_predictions_delayed": 0,
+        "total_predictions_on_time": 0,
+        "total_anomalies": 0,
+        "total_latency_ms": 0.0,
+    },
+}
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Charge le modele et la liste des colonnes attendues au demarrage de l'API."""
+    """Charge le modele, les colonnes attendues et l'echantillon de reference au demarrage."""
     mlflow.set_tracking_uri(TRACKING_URI)
     try:
         state["model"] = mlflow.sklearn.load_model(MODEL_URI)
         with open(FEATURE_COLUMNS_PATH) as f:
             state["feature_columns"] = json.load(f)
-        logger.info("Modele charge depuis %s", MODEL_URI)
+        state["reference"] = pd.read_csv(REFERENCE_SAMPLE_PATH)
+        logger.info("Modele et echantillon de reference charges (%s)", MODEL_URI)
     except Exception:
         logger.error("Echec du chargement du modele au demarrage", exc_info=True)
         state["model"] = None
@@ -84,8 +111,10 @@ class FlightRequest(BaseModel):
 
 
 class PredictionResponse(BaseModel):
-    delayed: int
-    probability: float
+    delayed: int | None
+    probability: float | None
+    anomaly: bool = False
+    message: str | None = None
 
 
 def encode_request(payload: FlightRequest, feature_columns: list) -> pd.DataFrame:
@@ -117,6 +146,28 @@ def encode_request(payload: FlightRequest, feature_columns: list) -> pd.DataFram
     return encoded.reindex(columns=feature_columns, fill_value=0)
 
 
+def detect_anomaly(payload: FlightRequest) -> str | None:
+    """Detecte une anomalie ponctuelle : une valeur numerique hors de la plage observee
+    a l'entrainement (artifacts/reference_sample.csv).
+
+    Differe des contraintes Pydantic (qui valident un format/type) : ici on compare la
+    valeur a la distribution reelle vue pendant l'entrainement (ex: une distance de
+    50000 miles est un entier positif valide, mais aucun vol d'entrainement n'en approche).
+    Entrees: requete validee. Sorties: message d'anomalie, ou None si rien d'anormal.
+    """
+    reference = state["reference"]
+    if reference is None:
+        return None
+
+    values = {"DISTANCE": payload.distance, "SCHEDULED_TIME": payload.scheduled_time}
+    for column in ANOMALY_COLUMNS:
+        col_min, col_max = reference[column].min(), reference[column].max()
+        value = values[column]
+        if not (col_min <= value <= col_max):
+            return f"{column} = {value} hors de la plage observee a l'entrainement [{col_min:.0f}, {col_max:.0f}]"
+    return None
+
+
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """Renvoie un 422 explicite (typage Pydantic ou validateur metier) avec le detail."""
@@ -143,13 +194,83 @@ def health():
 
 @app.post("/predict", response_model=PredictionResponse)
 def predict(payload: FlightRequest):
-    """Predit si le vol decrit par `payload` aura plus de 15 minutes de retard."""
+    """Predit si le vol decrit par `payload` aura plus de 15 minutes de retard.
+
+    Une anomalie ponctuelle (valeur hors plage) bloque la prediction (HTTP 200,
+    `delayed`/`probability` a null) sans lever d'erreur HTTP : la requete est valide
+    syntaxiquement, juste statistiquement suspecte. Une derive (cf. /drift_report) est
+    un signal different : elle n'empeche jamais une prediction individuelle.
+    """
     if state["model"] is None:
         logger.error("Predict appele alors que le modele n'est pas charge")
         raise HTTPException(status_code=500, detail="Modele indisponible")
 
+    start = time.perf_counter()
+    state["metrics"]["total_requests"] += 1
+
+    anomaly_reason = detect_anomaly(payload)
+    if anomaly_reason:
+        state["metrics"]["total_anomalies"] += 1
+        logger.warning("Anomalie detectee sur /predict: %s", anomaly_reason)
+        return PredictionResponse(delayed=None, probability=None, anomaly=True, message=anomaly_reason)
+
+    state["request_window"].append({"DISTANCE": payload.distance, "SCHEDULED_TIME": payload.scheduled_time})
+
     X = encode_request(payload, state["feature_columns"])
     proba = float(state["model"].predict_proba(X)[0][1])
     delayed = int(proba >= 0.5)
+
+    state["metrics"]["total_predictions_delayed" if delayed else "total_predictions_on_time"] += 1
+    state["metrics"]["total_latency_ms"] += (time.perf_counter() - start) * 1000
+
     logger.info("Prediction effectuee: delayed=%s proba=%.3f", delayed, proba)
     return PredictionResponse(delayed=delayed, probability=round(proba, 4))
+
+
+@app.get("/metrics")
+def metrics():
+    """Expose les indicateurs de supervision de l'API (compteurs en memoire, reinitialises au redemarrage)."""
+    m = state["metrics"]
+    avg_latency = m["total_latency_ms"] / m["total_requests"] if m["total_requests"] else 0.0
+    return {
+        "total_requests": m["total_requests"],
+        "total_predictions_delayed": m["total_predictions_delayed"],
+        "total_predictions_on_time": m["total_predictions_on_time"],
+        "total_anomalies_detected": m["total_anomalies"],
+        "average_latency_ms": round(avg_latency, 2),
+        "drift_window_size": len(state["request_window"]),
+    }
+
+
+@app.get("/drift_report")
+def drift_report():
+    """Detecte une derive de distribution sur la fenetre glissante des dernieres requetes.
+
+    Compare (test de Kolmogorov-Smirnov) la distribution recente des entrees de /predict
+    a l'echantillon de reference issu de l'entrainement, colonne par colonne. p-value <
+    0.05 => les deux distributions sont jugees significativement differentes (derive).
+    """
+    window = state["request_window"]
+    if len(window) < DRIFT_MIN_SAMPLES:
+        return {"status": "not_enough_data", "window_size": len(window), "required": DRIFT_MIN_SAMPLES}
+
+    window_df = pd.DataFrame(window)
+    reference = state["reference"]
+    details = {}
+    drift_detected = False
+    for column in ANOMALY_COLUMNS:
+        statistic, p_value = ks_2samp(reference[column], window_df[column])
+        column_drift = bool(p_value < DRIFT_P_VALUE_THRESHOLD)
+        drift_detected = drift_detected or column_drift
+        details[column] = {
+            "ks_statistic": round(float(statistic), 4),
+            "p_value": round(float(p_value), 4),
+            "drift_detected": column_drift,
+        }
+
+    if drift_detected:
+        logger.warning("Derive detectee sur la fenetre glissante: %s", details)
+    else:
+        logger.info("Pas de derive detectee sur la fenetre glissante (%s requetes)", len(window))
+
+    return {"window_size": len(window), "drift_detected": drift_detected, "details": details}

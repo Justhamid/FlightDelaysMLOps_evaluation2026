@@ -65,6 +65,14 @@ uvicorn app:app --reload
 # puis http://127.0.0.1:8000/docs
 ```
 
+## Supervision et détection de dérive
+
+- Logging structuré (INFO/WARNING/ERROR) à la fois sur la console et dans `logs/api.log`
+- `GET /metrics` : 6 indicateurs (requêtes totales, prédictions retard/à l'heure, anomalies détectées, latence moyenne, taille de la fenêtre glissante)
+- **Anomalie ponctuelle** : une valeur (`distance`, `scheduled_time`) hors de la plage observée à l'entraînement (`artifacts/reference_sample.csv`) ne lève pas d'erreur HTTP — la requête est valide syntaxiquement, juste statistiquement suspecte. Réponse `200` avec `delayed`/`probability` à `null` et un message explicite
+- **Dérive sur fenêtre glissante** (`GET /drift_report`) : test de Kolmogorov-Smirnov entre les 200 dernières requêtes et l'échantillon de référence ; `drift_detected: true` si p-value < 0.05. Différence clé avec l'anomalie : la dérive n'empêche jamais une prédiction individuelle, elle alerte sur un déplacement global de la distribution
+- Testé en conditions réelles : anomalie (distance hors plage), dérive simulée (distribution décalée → p-value ≈ 0) vs trafic normal (p-value ≈ 0.93), et panne du modèle (artefact manquant → `/health` passe à `model_loaded: false`, `/predict` renvoie 500, logs ERROR)
+
 ## Briques MLOps couvertes
 
 - [x] Pipeline de données versionné avec DVC
@@ -72,7 +80,7 @@ uvicorn app:app --reload
 - [x] Pipeline en fonctions à contrats (prepare / train / evaluate / save)
 - [x] Orchestration via un DAG Airflow (Docker)
 - [x] API d'inférence FastAPI (`/`, `/health`, `/predict`)
-- [ ] Supervision et détection de dérive (`/metrics`, anomalies, dérive)
+- [x] Supervision et détection de dérive (`/metrics`, anomalies, dérive)
 - [ ] Tests pytest + CI GitHub Actions
 - [ ] Proposition d'architecture d'évolution (stockage SQL/NoSQL/Big Data)
 
